@@ -1,7 +1,7 @@
 ## Mules-and-Warehouses-Extended: A mod for X4 Foundations
-This branch contains periodic merges of development done for un-released patchs (Public Beta Patchs) of X4 Foundations, this is not considered a formal release nor will be any such release's at official capacity from this branch. It exists to gather Feedback for upcoming game patchs.
+This branch contains periodic merges of development done for un-released work towards compatibility for  Beta Patchs (Public Beta Updates) of X4 Foundations, this is not considered a formal release nor will be any such release's at official capacity from this branch. It exists to gather Feedback for upcoming game update compatibility and public testing.
 
-Use of this download is strictly own risk backup save's proior to use, no support is given for these.
+> Use of this download is strictly own risk backup save's proior to use, no support is given for these.
 
 
 ### Download for Public Beta Releases 
