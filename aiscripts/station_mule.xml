@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<aiscript name="stationmule" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://x4libonline.ddns.net\libraries\aiscripts.xsd" version="5">
+<aiscript name="stationmule" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://x4libonline.ddns.net\libraries\aiscripts.xsd" version="6">
 	<!-- Setup context menu order -->
 	<order id="StationMule" name="M2- Station Mule" description="Ferries supplies between stations" category="trade" infinite="true">
 		<params>
@@ -63,10 +63,21 @@
 		<set_value name="$debugFileName" exact="'stationmule- ' + this.ship.idcode" />
 	</init>
 
+  <patch sinceversion="6">
+      <do_if value="$scantick == null">
+          <set_value name="$scantick" exact="0" /> 
+      </do_if>
+      <do_if value="$scantickrate == null">
+          <set_value name="$scantickrate" exact="100" /> 
+      </do_if>
+  </patch>
+
 	<attention min="unknown">
 		<actions>
 			<debug_to_file chance="$debugchance" name="$debugFileName" directory="'MulesExtended'" text="'starting log file'" append="false" output="false" />
 
+            <set_value name="$scantick" exact="0" /> 
+            <set_value name="$scantickrate" exact="100" />
 			<label name="start" />
 			<set_value name="$loops" exact="2" />
 			<do_if value="not $forbidTradeAll">
@@ -302,6 +313,11 @@
 								<append_to_list name="$prio5" exact="$someTrade" />
 								<debug_to_file chance="$debugchance" name="$debugFileName" directory="'MulesExtended'" text="'    ' +$someTrade.ware + ' no other criteria met. appended to prio5'" />
 							</do_else>
+                              <set_value name="$scantick" exact="$scantick+1" /> 
+                              <do_if value="$scantick gt $scantickrate">
+                                  <set_value name="$scantick" exact="0" /> 
+                                  <wait exact="1ms" />
+                              </do_if>
 						</do_all>
 						<do_all exact="$prio2.count" counter="$p2">
 							<append_to_list name="$outerList" exact="$prio2.{$p2}" />
@@ -373,7 +389,7 @@
 								<!-- need found -->
 								<do_if value="not $needFound">
 									<set_value name="$someInner" exact="$innerList.{$ctr}" />
-									<do_if value="$wareName" exact="$someInner.ware.name">
+									<do_if value="$wareName == $someInner.ware.name and $someInner.available and $someOuter.available">
 										<do_if value="$supplyFirstLocal">
 											<set_value name="$supplyTarget" exact="$someInner" />
 											<set_value name="$supplySource" exact="$someOuter" />
@@ -388,7 +404,7 @@
 										<set_value name="$targetIsWarehouse" exact="$supplyTarget.owner.tradewares.{$supplyTarget.ware}.exists and not $supplyTarget.owner.products.{$supplyTarget.ware}.exists" />
 										<debug_to_file chance="$debugchance" name="$debugFileName" directory="'MulesExtended'" text="'  sourceIsWareHouse ' +$sourceIsWarehouse" />
 										<debug_to_file chance="$debugchance" name="$debugFileName" directory="'MulesExtended'" text="'  targetIsWareHouse ' +$targetIsWarehouse" />
-										<do_if value="not ($sourceIsWarehouse and $targetIsWarehouse)">
+										<do_if value="((($supplySource.seller.owner != this.ship.owner) and ($supplyTarget.buyer.owner != this.ship.owner)) or (($supplySource.restriction.faction == $supplyTarget.buyer.owner) or ($supplyTarget.restriction.faction == $supplySource.seller.owner) or ($supplyTarget.restriction.faction == $supplySource.restriction.faction))) and not ($sourceIsWarehouse and $targetIsWarehouse)">
 											<do_if value="$supplyTarget.owner.owner == this.ship.owner">
 												<set_value name="$targetAmount" exact="$supplyTarget.desiredamount" />
 											</do_if>
@@ -414,6 +430,11 @@
 										</do_if>
 									</do_if>
 								</do_if>
+                                  <set_value name="$scantick" exact="$scantick+1" /> 
+                                  <do_if value="$scantick gt $scantickrate and (this.ship.orders.count == 0 or $scantick gt ($scantickrate*100))">
+                                      <set_value name="$scantick" exact="0" /> 
+                                      <wait exact="1ms" />
+                                  </do_if>
 							</do_all>
 						</do_if>
 					</do_all>
