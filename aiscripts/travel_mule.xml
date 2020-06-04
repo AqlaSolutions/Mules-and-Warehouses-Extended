@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<aiscript name="travelmule" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://x4libonline.ddns.net\libraries\aiscripts.xsd" version="5">
+<aiscript name="travelmule" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://x4libonline.ddns.net\libraries\aiscripts.xsd" version="7">
 	<!-- Setup context menu order -->
 	<order id="TravelMule" name="M1- Travel Mule" description="Ferries supplies between stations" category="trade" infinite="true">
 		<params>
 			<!-- menu option: Source Station (Define Source Station) -->
 			<param name="sourceStation" required="false" default="null" type="object" text="Source Station" comment="The source station">
-				<input_param name="class" value="[class.station]" />
+				<input_param name="class" value="[class.station, class.sector]" />
 			</param>
 			<param name="dedicatedServe" type="bool" default="false" text="Serve Source Only" comment="Will only serve the configured source station" />
 			<!-- menu option: Max Gate Distance -->
@@ -46,6 +46,8 @@
 			<param name="destList" required="false" default="[]" type="list" text="Custom Stop List (Replaces 'Target' Options)" comment="Manually choose Points to visit.">
 				<input_param name="type" value="'object'" />
 			</param>
+            <!--  Internal parameter used to restart the script on version update if required   --> 
+            <param name="restartScript" type="internal" default="false" /> 
 		</params>
 		<requires>
 			<!-- The requirements of ships in order to be eligible get this order (requirements can be skill-level requirements or ship-type requirements) -->
@@ -77,15 +79,6 @@
 		<set_value name="$debugDirName" exact="'MulesExtended'" />
 	</init>
 
-  <patch sinceversion="2">
-      <do_if value="$scantick == null">
-          <set_value name="$scantick" exact="0" /> 
-      </do_if>
-      <do_if value="$scantickrate == null">
-          <set_value name="$scantickrate" exact="100" /> 
-      </do_if>
-  </patch>
-
   <patch sinceversion="3">
 		<set_value name="$debugDirName" exact="'MulesExtended'" />
   </patch>
@@ -95,10 +88,34 @@
       </do_if>
   </patch>
 
+  <patch sinceversion="7">
+      <!--  This will reissue any standing supply mule orders  --> 
+      <!--  it should mitigate any problems with blocking actions beeing updated inbetween savegames   --> 
+      <debug_text text="'PATCH: Restarting supply mule script on load for version safety on mule %s'.[this.ship.idcode]" filter="savegame" /> 
+      <edit_order_param order="this.assignedcontrolled.order" param="'restartScript'" value="true" /> 
+  </patch>
+
 	<attention min="unknown">
 		<actions>
+            <set_value name="$restartScript" exact="false" /> 
             <set_value name="$scantick" exact="0" /> 
-            <set_value name="$scantickrate" exact="100" />
+		    <set_value name="$scantickrate" exact="200" />
+		    <set_value name="$scantickrateAfterOrder" exact="5000" />
+            <wait exact="1ms" /> <!-- no lag in pause -->
+            <set_value name="$latestBuyer" exact="null" />
+            <set_value name="$latestBuyerHomeDistance" exact="0" />
+            <do_if value="$sourceStation.isclass.sector">
+                <set_value name="$allowTradingForStation" exact="false" />
+                <set_value name="$dedicatedServe" exact="false" />
+                <set_value name="$assignSrc" exact="false" />
+                <!-- to local variable to not change parameter -->
+                <find_station space="$sourceStation" name="$sourceStationL"/>
+                <do_if value="not $sourceStationL"><return /></do_if>
+            </do_if>
+            <do_else>
+                <set_value name="$allowTradingForStation" exact="true" /> 
+                <set_value name="$sourceStationL" exact="$sourceStation" />
+            </do_else>
 			<label name="start" />
 			<debug_to_file chance="$debugchance" name="$debugFileName" directory="'MulesExtended'" text="'Starting Log File'" output="false" append="false" />
 			<set_value name="$bestCargo" exact="0" />
@@ -172,17 +189,26 @@
 				<resume label="start" />
 			</do_if>
 
+            <set_value name="$tradeOrdersCount" exact="0" />
+            <set_value name="$mode" exact="0" />
+			<set_value name="$ShipCapacity" exact="this.ship.cargo.capacity.all" />
+            <set_value name="$OccupiedCargo" exact="$ShipCapacity - this.ship.cargo.free.all" />
+            <do_if value="not $allowTradingForStation">
+                <set_value name="$mode" exact="1" />
+                <resume label="sectorCheck" />
+            </do_if>
+
 			<!-- the previous mules method stops the issue where user input wares are overwritten, but the side effect is that the user
 			can't see the warebasket selected by the mule, which I think is very important for the user to understand what
 			the mule is doing. My solution is to add a checkbox to lock the user wares, then populate the UI variable
 			with the wareBasket the mule finds from searching for offers -->
 			<do_if value="(not $lockWares)">
 				<set_value name="$wareBasket" exact="[]" />
-				<do_if value="$sourceStation.tradewares.count">
-					<append_list_elements name="$wareBasket" other="$sourceStation.tradewares.list" />
+				<do_if value="$sourceStationL.tradewares.count">
+					<append_list_elements name="$wareBasket" other="$sourceStationL.tradewares.list" />
 				</do_if>
-				<do_if value="$sourceStation.products.count">
-					<append_list_elements name="$wareBasket" other="$sourceStation.products.list" />
+				<do_if value="$sourceStationL.products.count">
+					<append_list_elements name="$wareBasket" other="$sourceStationL.products.list" />
 				</do_if>
 				<do_if value="$wareBasket.count">
 					<remove_from_list name="$specialWareBasket" />
@@ -193,17 +219,12 @@
 				<set_value name="$wareBasket" exact="$specialWareBasket" />
 			</do_else>
 
-            <set_value name="$tradeOrdersCount" exact="0" />
-            <set_value name="$mode" exact="0" />
-			<set_value name="$ShipCapacity" exact="this.ship.cargo.capacity.all" />
-            <set_value name="$OccupiedCargo" exact="$ShipCapacity - this.ship.cargo.free.all" />
-
 			<debug_to_file chance="$debugchance" name="$debugFileName" directory="'MulesExtended'" text="'-- station to player stations'" output="false" append="true" />
 
             <label name="findSupplies" />
 			<create_list name="$supplies" />
 			<!-- technically sourceStation could be owned by someone on the blacklist, but the player picked this manually -->
-			<find_sell_offer tradepartner="this.ship" seller="$sourceStation" result="$supplies" wares="$wareBasket" multiple="true">
+			<find_sell_offer tradepartner="this.ship" seller="$sourceStationL" result="$supplies" wares="$wareBasket" multiple="true">
 				<match_seller>
 					<match_gate_distance object="this.ship" min="0">
 						<blacklist group="blacklistgroup.civilian" object="this.ship" />
@@ -223,14 +244,14 @@
 
 			<!-- Finding Buyers -->
 			<do_if value="$destList.count == 0">
-				<find_cluster_in_range distances="$clusterstable" multiple="true" object="$sourceStation.cluster" mindistance="0" maxdistance="$maxDist" />
+				<find_cluster_in_range distances="$clusterstable" multiple="true" object="$sourceStationL.cluster" mindistance="0" maxdistance="$maxDist" />
 				<set_value name="$sellspaces" exact="$clusterstable.keys.sorted" />
 				<remove_value name="$clusterstable" />
 				<do_all exact="$sellspaces.count" counter="$sector">
 					<do_if value="$tradeWithAll">
 						<find_buy_offer tradepartner="this.ship" space="$sellspaces.{$sector}" result="$tempList" wares="$wareBasket" multiple="true">
 							<match_buyer>
-								<match_gate_distance object="$sourceStation" max="$maxDist">
+								<match_gate_distance object="$sourceStationL" max="$maxDist">
 									<blacklist group="blacklistgroup.civilian" object="this.ship" />
 								</match_gate_distance>
 								<match owner="this.ship.owner" />
@@ -248,7 +269,7 @@
 					<do_elseif value="$tradeWithBig">
 						<find_buy_offer tradepartner="this.ship" space="$sellspaces.{$sector}" result="$tempList" wares="$wareBasket" multiple="true">
 							<match_buyer>
-								<match_gate_distance object="$sourceStation" max="$maxDist">
+								<match_gate_distance object="$sourceStationL" max="$maxDist">
 									<blacklist group="blacklistgroup.civilian" object="this.ship" />
 								</match_gate_distance>
 								<match owner="this.ship.owner" />
@@ -280,7 +301,7 @@
 					<!-- the destList was built by the user manually in the UI so dont filter by blacklist -->
 					<find_buy_offer tradepartner="this.ship" buyer="$destList.{$customer}" result="$tempList" wares="$wareBasket" multiple="true">
 						<match_buyer>
-							<match_gate_distance object="$sourceStation" max="$maxDist">
+							<match_gate_distance object="$sourceStationL" max="$maxDist">
 								<blacklist group="blacklistgroup.civilian" object="this.ship" />
 							</match_gate_distance>
 							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -339,6 +360,7 @@
     						<do_all exact="$innerList.count" counter="$ctr">
     							<set_value name="$someInner" exact="$innerList.{$innerList.count-$ctr+1}" />
     							<do_if value="$someOuter.available and $someInner.available and $someOuter.ware.id==$someInner.ware.id">
+                                    <do_if value="$latestBuyer != null and $latestBuyer.sector != $sourceStationL.sector and $someInner.buyer.sector!=$latestBuyer.sector and ($someInner.buyer.gatedistance.{$latestBuyer}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestBuyerHomeDistance)"> <continue /> </do_if>
     								<!-- find need -->
     								<do_if value="$someInner.owner.owner == this.ship.owner">
     									<set_value name="$targetAmount" exact="$someInner.desiredamount" />
@@ -371,7 +393,7 @@
     								    <set_value name="$supplySource" exact="$someOuter" />
     								</do_if>
                                       <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate*10))">
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))">
                                           <set_value name="$scantick" exact="0" /> 
                                           <wait exact="1ms" />
                                       </do_if>
@@ -396,8 +418,10 @@
     							</do_else>
     
     							<create_trade_order name="$getSupply" object="this.object" tradeoffer="$supplySource" amount="$bestCargo" immediate="true" />
-    							<create_trade_order name="$dropSupply" object="this.object" tradeoffer="$supplyTarget" amount="$bestCargo" immediate="false" />
-    
+    							<create_trade_order name="$dropSupply" object="this.object" tradeoffer="$supplyTarget" amount="$bestCargo" immediate="false" />   
+                                <set_value name="$latestBuyer" exact="$supplyTarget.buyer.sector" />
+                                <set_value name="$latestBuyerHomeDistance" exact="$supplyTarget.buyer.gatedistance.{$supplySource.seller}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
+
                                 <set_value name="$OccupiedCargo" exact="$OccupiedCargo + $bestCargo * $supplyTarget.ware.volume" />
                                 <set_value name="$tradeCreated" exact="true" />
                                 <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" />
@@ -427,14 +451,14 @@
                 <set_value name="$mode" exact="$mode + 1" />
                 <do_if value="$destList.count == 0">	
         			<create_list name="$needs" />
-                    <find_cluster_in_range distances="$clusterstable" multiple="true" object="$sourceStation.cluster" mindistance="0" maxdistance="$maxDist" />
+                    <find_cluster_in_range distances="$clusterstable" multiple="true" object="$sourceStationL.cluster" mindistance="0" maxdistance="$maxDist" />
     				<set_value name="$sellspaces" exact="$clusterstable.keys.sorted" />
     				<remove_value name="$clusterstable" />
     				<do_all exact="$sellspaces.count" counter="$sector">
     					<do_if value="$tradeWithAll">
     						<find_buy_offer tradepartner="this.ship" space="$sellspaces.{$sector}" result="$tempList" wares="$wareBasket" multiple="true">
     							<match_buyer>
-    								<match_gate_distance object="$sourceStation" max="$maxDist">
+    								<match_gate_distance object="$sourceStationL" max="$maxDist">
     									<blacklist group="blacklistgroup.civilian" object="this.ship" />
     								</match_gate_distance>
     								<match_relation_to object="this.ship" relation="enemy" comparison="not" />
@@ -454,7 +478,7 @@
     					<do_elseif value="$tradeWithBig">
     						<find_buy_offer tradepartner="this.ship" space="$sellspaces.{$sector}" result="$tempList" wares="$wareBasket" multiple="true">
     							<match_buyer>
-    								<match_gate_distance object="$sourceStation" max="$maxDist">
+    								<match_gate_distance object="$sourceStationL" max="$maxDist">
     									<blacklist group="blacklistgroup.civilian" object="this.ship" />
     								</match_gate_distance>
     								<match_relation_to object="this.ship" relation="enemy" comparison="not" />
@@ -485,7 +509,7 @@
                     <resume label="match" />
                 </do_if>
             </do_if>
-
+            <label name="sectorCheck" />
             <!-- try to sell from other player stations in sector -->
             <do_if value="not $dedicatedServe and $mode == 1">
     			<debug_to_file chance="$debugchance" name="$debugFileName" directory="'MulesExtended'" text="'-- sector to player stations'" output="false" append="true" />
@@ -501,7 +525,7 @@
 
     	        <remove_from_list name="$supplies" />
 
-    			<find_sell_offer tradepartner="this.ship" space="$sourceStation.sector" result="$supplies" wares="$wareBasket" multiple="true">
+    			<find_sell_offer tradepartner="this.ship" space="$sourceStationL.sector" result="$supplies" wares="$wareBasket" multiple="true">
     				<match_seller>
 						<match class="class.station" />
     					<match owner="this.ship.owner" />
@@ -524,6 +548,27 @@
 			<wait min="3min" max="5min" />
 			<label name="end" />
             <debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'******* went to end, occupied cargo ' + $OccupiedCargo + ' of ' + $ShipCapacity + ', trades: ' + $tradeOrdersCount" />
+			<return/>
+			<!-- Absolutly ridicules workaround to surpress any messages related to blocking actions -->
+			<!-- Basicially, we add a bunch of blocking actions that are never reached. -->
+			<!-- This ensures, that our block action index in the savegames never exceeds the actual number of blocking actions. -->
+			<!-- Therefore, if we were to delete a blocking action above, the savegame will load without throwing an error message -->
+			<!-- Note, that the script state in this case is totally wrong, since the game will load the variables from the last game. -->
+			<!-- This is mitiagted, by restarting the order with a patch command on load. -->
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/> 
 		</actions>
 	</attention>
 </aiscript>
