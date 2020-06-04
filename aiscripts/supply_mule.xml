@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<aiscript name="supplymule" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://x4libonline.ddns.net\libraries\aiscripts.xsd" version="4">
+<aiscript name="supplymule" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://x4libonline.ddns.net\libraries\aiscripts.xsd" version="6">
 	<!-- Setup context menu order-->
 	<order id="SupplyMule" name="M4- Supply Mule" description="Supplys own Stations Needs" category="trade" infinite="true">
 		<params>
 			<!-- menu option: Source Station (Define Source Station)-->
 			<param name="sourceStation" required="false" default="null" type="object" text="Source Station" comment="The source station">
-				<input_param name="class" value="[class.station]" />
+				<input_param name="class" value="[class.station,class.sector]" />
 			</param>
 			<!-- menu option: Assign Ship to Station (Are we assigning this ship to a station if player owned.)-->
 			<param name="assignSrc" type="bool" default="false" text="Assign Ship To Station" comment="Assign to the source station if it's the players." />
@@ -45,6 +45,8 @@
 				<input_param name="max" value="100" />
 				<input_param name="step" value="5" />
 			</param>
+            <!--  Internal parameter used to restart the script on version update if required   --> 
+            <param name="restartScript" type="internal" default="false" /> 
 		</params>
 		<requires>
 			<match shiptype="shiptype.lasertower" negate="true" /> <!-- no idea wtf this is for-->
@@ -79,15 +81,6 @@
 		</do_if>
 	</init>
 
-  <patch sinceversion="2">
-      <do_if value="$scantick == null">
-          <set_value name="$scantick" exact="0" /> 
-      </do_if>
-      <do_if value="$scantickrate == null">
-          <set_value name="$scantickrate" exact="100" /> 
-      </do_if>
-  </patch>
-
   <patch sinceversion="3">
       <do_if value="$scantick == null">
           <set_value name="$scantick" exact="0" /> 
@@ -106,13 +99,39 @@
         </do_if>
       </do_if>
   </patch>
+
+  <patch sinceversion="6">
+      <!--  This will reissue any standing supply mule orders  --> 
+      <!--  it should mitigate any problems with blocking actions beeing updated inbetween savegames   --> 
+      <debug_text text="'PATCH: Restarting supply mule script on load for version safety on mule %s'.[this.ship.idcode]" filter="savegame" /> 
+      <edit_order_param order="this.assignedcontrolled.order" param="'restartScript'" value="true" /> 
+  </patch>
+
 	<attention min="unknown">
 		<actions>
 			<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ScriptStart'" output="false" append="false" />
 
+            <set_value name="$ignoreTotalCargoCheck" exact="false" />
+		    <set_value name="$scantickrate" exact="200" />
+		    <set_value name="$scantickrateAfterOrder" exact="5000" />
+            <set_value name="$restartScript" exact="false" /> 
             <set_value name="$tradeOrdersCount" exact="0" /> 
             <set_value name="$scantick" exact="0" /> 
-            <set_value name="$scantickrate" exact="100" />
+            <set_value name="$latestSeller" exact="null" />
+            <set_value name="$latestSellerHomeDistance" exact="0" />
+            <wait exact="1ms" /> <!-- no lag in pause -->
+            <do_if value="$sourceStation.isclass.sector">
+                <set_value name="$allowTradingForStation" exact="false" />
+                <set_value name="$dedicatedServe" exact="false" />
+                <set_value name="$assignSrc" exact="false" />
+                <!-- to local variable to not change parameter -->
+                <find_station space="$sourceStation" name="$sourceStationL"/>
+                <do_if value="not $sourceStationL"><return /></do_if>
+            </do_if>
+            <do_else>
+                <set_value name="$allowTradingForStation" exact="true" /> 
+                <set_value name="$sourceStationL" exact="$sourceStation" />
+            </do_else>
 			<label name="start" />
 			<set_value name="$PerformanceTime" exact="player.age" />
 
@@ -126,8 +145,8 @@
 			<!-- Dump Mule Settings -->
 			<do_if value="$debugchance">
 				<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Supply Mule Settings:'" output="false" append="true" />
-				<do_if value="$sourceStation">
-					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'    sourceStation: %1 (%2)'.[$sourceStation.knownname,$sourceStation.idcode]" output="false" append="true" />
+				<do_if value="$sourceStationL">
+					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'    sourceStation: %1 (%2)'.[$sourceStationL.knownname,$sourceStationL.idcode]" output="false" append="true" />
 				</do_if>
 				<do_else>
 					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'    sourceStation: not set'" output="false" append="true" />
@@ -143,12 +162,12 @@
 				<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'    playerBuyMod: %1'.[$playerBuyMod]" output="false" append="true" />
 			</do_if>
 
-			<do_if value="$dedicatedServe and not $sourceStation">
+			<do_if value="$dedicatedServe and not $sourceStationL">
 				<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Invalid Config: dedicatedServe (No Station configured)'" output="false" append="true" />
 				<set_value name="$dedicatedServe" exact="false" />
 			</do_if>
 
-			<do_if value="$assignSrc and not $sourceStation">
+			<do_if value="$assignSrc and not $sourceStationL">
 				<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Invalid Config: assignSrc (No Station configured)'" output="false" append="true" />
 				<set_value name="$assignSrc" exact="false" />
 			</do_if>
@@ -176,7 +195,7 @@
 				<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'    copying default behavior'" output="false" append="true" />
 				<remove_object_commander object="$subordinate" />
 				<create_order object="$subordinate" default="true" id="'SupplyMule'">
-					<param name="sourceStation" value="$sourceStation" />
+					<param name="sourceStation" value="if $sourceStationL and $allowTradingForStation then $sourceStationL else null" />
 					<param name="assignSrc" value="$assignSrc" />
 					<param name="dedicatedServe" value="$dedicatedServe" />
 					<param name="tradeWithOwn" value="$tradeWithOwn" />
@@ -274,6 +293,9 @@
 
 			<set_value name="$ShipCapacity" exact="this.ship.cargo.capacity.all" />
             <set_value name="$OccupiedCargo" exact="$ShipCapacity - this.ship.cargo.free.all" />
+			<do_if value="not $sourceStationL">
+                <set_value name="$maxtrades" exact="1" />
+            </do_if>
             <set_value name="$minCargoSize" exact="$ShipCapacity / $maxtrades" />
             <debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Occupied cargo ' + $OccupiedCargo + ' of ' + $ShipCapacity + ', min: ' + $minCargoSize" />
 			<do_if value="$OccupiedCargo + $minCargoSize gt $ShipCapacity">
@@ -283,9 +305,8 @@
 			<!-- first we will deal with the situation where you don't set a station -->
 
 			<!-- ************************ case where no station is set ************************** -->
-			<do_if value="not $sourceStation">
-				<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- No Source Station set. Entering logic block for not $sourceStation'" />
-
+			<do_if value="not $sourceStationL">
+				<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- No Source Station set. Entering logic block for not $sourceStationL'" />               
 				<!-- ************************ buy from player, sell to player build storage ************************** -->
 				<do_if value="($builder) or (not $producer)">
 					<!-- ************************ buy from player, sell to player build storage ************************** -->
@@ -380,7 +401,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -416,7 +437,6 @@
 								<!-- how much does the need want? -->
 								<get_ware_reservation object="$someNeed.owner" type="buy" ware="$someNeed.ware" result="$needReservations" />
                                 <set_value name="$targetOfferedAmount" exact="$someNeed.desiredamount" />
-                                <do_if value="($targetOfferedAmount+1) * $someNeed.ware.volume lt $minCargoSize"> <continue /> </do_if>
 
 								<do_all exact="$playerSupplyOffers.count" counter="$j">
 									<set_value name="$someSupply" exact="$playerSupplyOffers.{$j}" />
@@ -425,8 +445,20 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -447,9 +479,8 @@
 											<continue />
 										</do_elseif>
 
-
 										<!-- how much profit for this trade? -->
-										<set_value name="$currentProfit" exact="$cargoHauled * $someNeed.ware.volume" />
+										<set_value name="$currentProfit" exact="$tradeAmount * $someNeed.ware.volume" />
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}*0.02)f)" />
 										<do_if value="$debugchance">
@@ -475,20 +506,19 @@
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt ($scantickrate) and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                      <wait exact="1ms" />
-                                      </do_if>
 								</do_all>
 							</do_all>
 
 							<!-- if we found a good trade, create the buy order for the supply and the sell order for the need. -->
 							<!-- if we end up with more than one need, we'll move it down with move_order later -->
 							<do_if value="$bestProfit gt 0">
+                                <!-- we must wait before creating orders -->
 								<do_if value="$bestSupplyTrade.available and $bestNeedTrade.available">
+                                    <do_if value="(($bestAmount+1)*$bestNeedTrade.ware.volume lt $minCargoSize) and ($bestAmount == $bestNeedTrade.desiredamount)">
+    									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Setting $ignoreTotalCargoCheck t o true for completing build storage order'" />
+									    <set_value name="$ignoreTotalCargoCheck" exact="true"/>
+								    </do_if>
 									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- trade found'" />
-
 									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'buying ' +$bestAmount + ' ' +$bestNeedTrade.ware +' from ' +$bestSupplyTrade.owner.knownname
 									+' at ' +$bestSupplyTrade.unitprice.formatted.{'%s %Cr'} + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 									+' at ' +$bestNeedTrade.unitprice.formatted.{'%s %Cr'} + ' for a profit of ' +($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'}" />
@@ -496,10 +526,12 @@
 									<write_to_logbook category="upkeep" title="$logbookEntryTitle" interaction="showonmap" money="$bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)" text="'buying ' +$bestAmount + ' ' +$bestNeedTrade.ware +' from ' +$bestSupplyTrade.owner.knownname
 										+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 										+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
-
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
-                                    <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
+                                    <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" />
 								</do_if>
 								<do_else>
 									<continue />
@@ -626,7 +658,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -662,7 +694,6 @@
 								<!-- how much does the need want? -->
 								<get_ware_reservation object="$someNeed.owner" type="buy" ware="$someNeed.ware" result="$needReservations" />
                                 <set_value name="$targetOfferedAmount" exact="$someNeed.desiredamount" />
-                                <do_if value="($targetOfferedAmount+1) * $someNeed.ware.volume lt $minCargoSize"> <continue /> </do_if>
 
 								<do_all exact="$aiSupplyOffers.count" counter="$j">
 									<set_value name="$someSupply" exact="$aiSupplyOffers.{$j}" />
@@ -671,8 +702,19 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -695,6 +737,7 @@
 
 										<!-- how much profit for this trade? -->
 										<set_value name="$currentProfit" exact="$cargoHauled * ($someNeed.unitprice - $someSupply.unitprice)" />
+
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-(($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}+this.ship.gatedistance.{$someSupply.seller}.{blacklistgroup.civilian}.{this.assignedcontrolled})*0.02)f)" />
 										<do_if value="$debugchance">
@@ -719,19 +762,9 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
-									</do_if>
 
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
+                                      
+									</do_if>
 								</do_all>
 							</do_all>
 
@@ -739,6 +772,10 @@
 							<!-- if we end up with more than one need, we'll move it down with move_order later -->
 							<do_if value="$bestNeedTrade != null">
 								<do_if value="$bestSupplyTrade.available and $bestNeedTrade.available">
+                                    <do_if value="(($bestAmount+1)*$bestNeedTrade.ware.volume lt $minCargoSize) and ($bestAmount == $bestNeedTrade.desiredamount)">
+    									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Setting $ignoreTotalCargoCheck t o true for completing build storage order'" />
+									    <set_value name="$ignoreTotalCargoCheck" exact="true"/>
+								    </do_if>
 									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'buying ' +$bestAmount + ' ' +$bestNeedTrade.ware +' from ' +$bestSupplyTrade.owner.knownname
 									+' at ' +$bestSupplyTrade.unitprice.formatted.{'%s %Cr'} + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 									+' at ' +$bestNeedTrade.unitprice.formatted.{'%s %Cr'} + ' for a profit of ' +($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'} " />
@@ -747,8 +784,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -920,7 +960,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -965,8 +1005,20 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -984,7 +1036,7 @@
 										</do_if>
 
 										<!-- how much profit for this trade? -->
-										<set_value name="$currentProfit" exact="$cargoHauled * $someNeed.ware.volume" />
+										<set_value name="$currentProfit" exact="$tradeAmount * $someNeed.ware.volume" />
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}*0.02)f)" />
 										<do_if value="$debugchance">
@@ -1008,18 +1060,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -1035,8 +1077,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -1208,7 +1253,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -1253,9 +1298,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
 
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<get_ware_reservation object="$someSupply.owner" type="sell" ware="$someSupply.ware" result="$supplyReservations" />
 										<set_value name="$affordableAmount" exact="[$someSupply.amount-$supplyReservations,0].max" />
@@ -1298,18 +1355,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -1325,8 +1372,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -1498,7 +1548,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -1543,9 +1593,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
 
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -1563,7 +1625,7 @@
 										</do_if>
 
 										<!-- how much profit for this trade? -->
-										<set_value name="$currentProfit" exact="$cargoHauled * $someNeed.ware.volume" />
+										<set_value name="$currentProfit" exact="$tradeAmount * $someNeed.ware.volume" />
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}*0.02)f)" />
 										<do_if value="$debugchance">
@@ -1588,18 +1650,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -1615,8 +1667,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -1788,7 +1843,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -1833,9 +1888,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
 
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -1877,18 +1944,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -1904,8 +1961,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -1938,10 +1998,10 @@
 					<remove_value name="$aiSupplyOffers" />
 				</do_if> <!-- end of anyone to player tradewares-->
 
-			</do_if> <!-- end of no $sourceStation if-->
+			</do_if> <!-- end of no $sourceStationL if-->
 
 			<!-- ************************ case where station is set and owned by plaver ************************** -->
-			<do_if value="$sourceStation and ($sourceStation.owner==this.ship.owner)">
+			<do_if value="$sourceStationL and $allowTradingForStation and ($sourceStationL.owner==this.ship.owner)">
 				<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- Source Station owned by Player block '" />
 
 				<!-- ************************ buy from player, sell to station build storage ************************** -->
@@ -1949,7 +2009,7 @@
 					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- player supply to single station build storage'" />
 
 					<!-- finding the player build storage needs -->
-					<find_buy_offer space="player.galaxy" tradepartner="this.ship" buyer="$sourceStation.buildstorage" result="$stationBuildNeeds" multiple="true">
+					<find_buy_offer space="player.galaxy" tradepartner="this.ship" buyer="$sourceStationL.buildstorage" result="$stationBuildNeeds" multiple="true">
 						<match_buyer class="class.buildstorage" owner="this.ship.owner" />
 					</find_buy_offer>
 
@@ -1978,7 +2038,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$playerSupplyOffers" multiple="true">
     						<match_seller owner="this.ship.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -2011,7 +2071,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -2047,7 +2107,6 @@
 								<!-- how much does the need want? -->
 								<get_ware_reservation object="$someNeed.owner" type="buy" ware="$someNeed.ware" result="$needReservations" />
                                 <set_value name="$targetOfferedAmount" exact="$someNeed.desiredamount" />
-                                <do_if value="($targetOfferedAmount+1) * $someNeed.ware.volume lt $minCargoSize"> <continue /> </do_if>
 
 								<do_all exact="$playerSupplyOffers.count" counter="$j">
 									<set_value name="$someSupply" exact="$playerSupplyOffers.{$j}" />
@@ -2056,9 +2115,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
-									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
 
+									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -2080,7 +2151,7 @@
 										</do_elseif>
 
 										<!-- how much profit for this trade? -->
-										<set_value name="$currentProfit" exact="$cargoHauled * $someNeed.ware.volume" />
+										<set_value name="$currentProfit" exact="$tradeAmount * $someNeed.ware.volume" />
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}*0.02)f)" />
 										<do_if value="$debugchance">
@@ -2105,18 +2176,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -2124,6 +2185,10 @@
 							<!-- if we end up with more than one need, we'll move it down with move_order later -->
 							<do_if value="$bestProfit gt 0">
 								<do_if value="$bestSupplyTrade.available and $bestNeedTrade.available">
+                                    <do_if value="(($bestAmount+1)*$bestNeedTrade.ware.volume lt $minCargoSize) and ($bestAmount == $bestNeedTrade.desiredamount)">
+    									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Setting $ignoreTotalCargoCheck t o true for completing build storage order'" />
+									    <set_value name="$ignoreTotalCargoCheck" exact="true"/>
+								    </do_if>
 									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'buying ' +$bestAmount + ' ' +$bestNeedTrade.ware +' from ' +$bestSupplyTrade.owner.knownname
 									+' at ' +$bestSupplyTrade.unitprice.formatted.{'%s %Cr'} + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 									+' at ' +$bestNeedTrade.unitprice.formatted.{'%s %Cr'} + ' for a profit of ' +($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'}" />
@@ -2132,8 +2197,11 @@
 										+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 										+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -2174,7 +2242,7 @@
 					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- ai to single station build storage'" />
 
 					<!-- finding the player build storage needs again, just in case -->
-					<find_buy_offer space="player.galaxy" buyer="$sourceStation.buildstorage" tradepartner="this.ship" result="$stationBuildNeeds" multiple="true">
+					<find_buy_offer space="player.galaxy" buyer="$sourceStationL.buildstorage" tradepartner="this.ship" result="$stationBuildNeeds" multiple="true">
 						<match_buyer class="class.buildstorage" owner="this.ship.owner" />
 					</find_buy_offer>
 
@@ -2209,7 +2277,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$aiSupplyOffers" multiple="true">
     						<match_seller tradesknownto="this.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -2249,7 +2317,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -2285,7 +2353,6 @@
 								<!-- how much does the need want? -->
 								<get_ware_reservation object="$someNeed.owner" type="buy" ware="$someNeed.ware" result="$needReservations" />
                                 <set_value name="$targetOfferedAmount" exact="$someNeed.desiredamount" />
-                                <do_if value="($targetOfferedAmount+1) * $someNeed.ware.volume lt $minCargoSize"> <continue /> </do_if>
 
 								<do_all exact="$aiSupplyOffers.count" counter="$j">
 									<set_value name="$someSupply" exact="$aiSupplyOffers.{$j}" />
@@ -2294,9 +2361,22 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
 
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<!-- how much can the station (not build storage) afford/store? -->
 										<!-- This is required because we issue a trade order using the ship, which only interacts with the stations account. -->
@@ -2344,6 +2424,7 @@
 
 										<!-- how much profit for this trade? -->
 										<set_value name="$currentProfit" exact="$cargoHauled * ($someNeed.unitprice - $someSupply.unitprice)" />
+
 										<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="' amount check passed, profit ' + $currentProfit" />
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}*0.02)f)" />
@@ -2358,18 +2439,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -2377,6 +2448,10 @@
 							<!-- if we end up with more than one need, we'll move it down with move_order later -->
 							<do_if value="$bestNeedTrade != null">
 								<do_if value="$bestSupplyTrade.available and $bestNeedTrade.available">
+                                    <do_if value="(($bestAmount+1)*$bestNeedTrade.ware.volume lt $minCargoSize) and ($bestAmount == $bestNeedTrade.desiredamount)">
+    									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Setting $ignoreTotalCargoCheck t o true for completing build storage order'" />
+									    <set_value name="$ignoreTotalCargoCheck" exact="true"/>
+								    </do_if>
 									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'buying ' +$bestAmount + ' ' +$bestNeedTrade.ware +' from ' +$bestSupplyTrade.owner.knownname
 									+' at ' +$bestSupplyTrade.unitprice.formatted.{'%s %Cr'} + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 									+' at ' +$bestNeedTrade.unitprice.formatted.{'%s %Cr'} + ' for a profit of ' +($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'} " />
@@ -2385,8 +2460,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -2425,7 +2503,7 @@
 
 					<!-- finding the player needs -->
 					<!-- unfortunately at this level it's not possible to filter for only goods that are products on the station -->
-					<find_buy_offer space="player.galaxy" buyer="$sourceStation" tradepartner="this.ship" result="$tmpProductNeeds" multiple="true">
+					<find_buy_offer space="player.galaxy" buyer="$sourceStationL" tradepartner="this.ship" result="$tmpProductNeeds" multiple="true">
 						<match_buyer owner="this.ship.owner">
 							<match class="class.buildstorage" negate="true" />
 						</match_buyer>
@@ -2507,7 +2585,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$playerSupplyOffers" multiple="true">
     						<match_seller owner="this.ship.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -2548,7 +2626,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -2593,12 +2671,25 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<!-- I have seen this $someNeed.ware.id error before implying that something is null 
 										I can't figure out why it would error here but not in the debug list above. Makes me think
 										perhaps it's erroring because we've already filled the need and the order has disappeared completely-->
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
 
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -2616,7 +2707,7 @@
 										</do_if>
 
 										<!-- how much profit for this trade? -->
-										<set_value name="$currentProfit" exact="$cargoHauled * $someNeed.ware.volume" />
+										<set_value name="$currentProfit" exact="$tradeAmount * $someNeed.ware.volume" />
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}*0.02)f)" />
 										<do_if value="$debugchance">
@@ -2641,18 +2732,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -2668,8 +2749,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -2708,7 +2792,7 @@
 
 					<!-- finding the player needs -->
 					<!-- unfortunately at this level it's not possible to filter for only goods that are products on the station -->
-					<find_buy_offer space="player.galaxy" buyer="$sourceStation" tradepartner="this.ship" result="$tmpProductNeeds" multiple="true">
+					<find_buy_offer space="player.galaxy" buyer="$sourceStationL" tradepartner="this.ship" result="$tmpProductNeeds" multiple="true">
 						<match_buyer owner="this.ship.owner">
 							<match class="class.buildstorage" negate="true" />
 						</match_buyer>
@@ -2791,7 +2875,7 @@
     						<match_seller tradesknownto="this.owner">
     							<!-- this next bit of mess is just blacklist handling -->
     							<!-- for the object in the gate distance I need a way to start us near a human station -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -2831,7 +2915,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -2876,8 +2960,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<!-- how much can the station afford/store? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
@@ -2919,18 +3016,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -2946,8 +3033,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -2986,7 +3076,7 @@
 
 					<!-- finding the player needs -->
 					<!-- unfortunately at this level it's not possible to filter for only goods that are products on the station -->
-					<find_buy_offer space="player.galaxy" buyer="$sourceStation" tradepartner="this.ship" result="$tmpTradeNeeds" multiple="true">
+					<find_buy_offer space="player.galaxy" buyer="$sourceStationL" tradepartner="this.ship" result="$tmpTradeNeeds" multiple="true">
 						<match_buyer owner="this.ship.owner">
 							<match class="class.buildstorage" negate="true" />
 						</match_buyer>
@@ -3068,7 +3158,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$playerSupplyOffers" multiple="true">
     						<match_seller owner="this.ship.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -3109,7 +3199,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -3154,8 +3244,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -3173,7 +3276,7 @@
 										</do_if>
 
 										<!-- how much profit for this trade? -->
-										<set_value name="$currentProfit" exact="$cargoHauled * $someNeed.ware.volume" />
+										<set_value name="$currentProfit" exact="$tradeAmount * $someNeed.ware.volume" />
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}*0.02)f)" />
 										<do_if value="$debugchance">
@@ -3198,18 +3301,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -3225,8 +3318,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -3265,7 +3361,7 @@
 
 					<!-- finding the player needs -->
 					<!-- unfortunately at this level it's not possible to filter for only goods that are products on the station -->
-					<find_buy_offer space="player.galaxy" buyer="$sourceStation" tradepartner="this.ship" result="$tmpTradeNeeds" multiple="true">
+					<find_buy_offer space="player.galaxy" buyer="$sourceStationL" tradepartner="this.ship" result="$tmpTradeNeeds" multiple="true">
 						<match_buyer owner="this.ship.owner">
 							<match class="class.buildstorage" negate="true" />
 						</match_buyer>
@@ -3348,7 +3444,7 @@
     						<match_seller tradesknownto="this.owner">
     							<!-- this next bit of mess is just blacklist handling -->
     							<!-- for the object in the gate distance I need a way to start us near a human station -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -3388,7 +3484,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -3433,8 +3529,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<!-- how much can the station afford/store? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
@@ -3476,18 +3585,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -3503,8 +3602,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -3537,18 +3639,18 @@
 					<remove_value name="$aiSupplyOffers" />
 				</do_if> <!-- end of anyone to station tradewares-->
 
-			</do_if> <!-- end of $sourceStation if-->
+			</do_if> <!-- end of $sourceStationL if-->
 
 			<!-- ************************ case where station is set but can be owned by plaver OR AI ************************** -->
-			<do_if value="$sourceStation">
-				<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Source Station set to ' +$sourceStation.knownname +' Entering Source Station owned by Player OR AI block'" />
+			<do_if value="$sourceStationL">
+				<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Source Station set to ' +$sourceStationL.knownname +' Entering Source Station owned by Player OR AI block'" />
 
 				<!-- ************************ buy from player, sell to AI station ************************** -->
-				<do_if value="$sourceStation.owner != this.ship.owner">
+				<do_if value="$allowTradingForStation and $sourceStationL.owner != this.ship.owner">
 					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- player supply to single ai station'" />
 
 					<!-- finding the station needs -->
-					<find_buy_offer space="player.galaxy" tradepartner="this.ship" buyer="$sourceStation" result="$stationNeeds" multiple="true"></find_buy_offer>
+					<find_buy_offer space="player.galaxy" tradepartner="this.ship" buyer="$sourceStationL" result="$stationNeeds" multiple="true"></find_buy_offer>
 
 					<!-- dumping all needs to the log file -->
 					<do_if value="$debugchance">
@@ -3587,7 +3689,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$playerSupplyOffers" multiple="true">
     						<match_seller owner="this.ship.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -3628,7 +3730,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -3673,9 +3775,22 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
 
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -3718,18 +3833,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -3747,8 +3852,11 @@
 										+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 										+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -3783,11 +3891,11 @@
 				</do_if> <!-- end of player to ai station-->
 
 				<!-- ************************ buy from anyone, sell to AI station ************************** -->
-				<do_if value="($sourceStation.owner != this.ship.owner) and (not $tradeWithOwn)">
+				<do_if value="$allowTradingForStation and ($sourceStationL.owner != this.ship.owner) and (not $tradeWithOwn)">
 					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- ai to single station general needs'" />
 
 					<!-- finding the station needs -->
-					<find_buy_offer space="player.galaxy" buyer="$sourceStation" tradepartner="this.ship" result="$stationNeeds" multiple="true"></find_buy_offer>
+					<find_buy_offer space="player.galaxy" buyer="$sourceStationL" tradepartner="this.ship" result="$stationNeeds" multiple="true"></find_buy_offer>
 
 					<!-- dumping all needs to the log file -->
 					<do_if value="$debugchance">
@@ -3822,7 +3930,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$aiSupplyOffers" multiple="true">
     						<match_seller tradesknownto="this.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -3862,7 +3970,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -3907,8 +4015,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -3951,18 +4072,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -3978,8 +4089,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -4017,7 +4131,7 @@
 					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- player to station sector player build storage '" />
 
 					<!-- finding the player build storage needs -->
-					<find_buy_offer space="$sourceStation.sector" tradepartner="this.ship" result="$playerBuildNeeds" multiple="true">
+					<find_buy_offer space="$sourceStationL.sector" tradepartner="this.ship" result="$playerBuildNeeds" multiple="true">
 						<match_buyer class="class.buildstorage" owner="this.ship.owner" />
 					</find_buy_offer>
 
@@ -4054,7 +4168,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$playerSupplyOffers" multiple="true">
     						<match_seller owner="this.ship.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -4095,7 +4209,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -4131,7 +4245,6 @@
 								<!-- how much does the need want? -->
 								<get_ware_reservation object="$someNeed.owner" type="buy" ware="$someNeed.ware" result="$needReservations" />
                                 <set_value name="$targetOfferedAmount" exact="$someNeed.desiredamount" />
-                                <do_if value="($targetOfferedAmount+1) * $someNeed.ware.volume lt $minCargoSize"> <continue /> </do_if>
 
 								<do_all exact="$playerSupplyOffers.count" counter="$j">
 									<set_value name="$someSupply" exact="$playerSupplyOffers.{$j}" />
@@ -4140,8 +4253,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -4163,7 +4289,7 @@
 										</do_elseif>
 
 										<!-- how much profit for this trade? -->
-										<set_value name="$currentProfit" exact="$cargoHauled * $someNeed.ware.volume" />
+										<set_value name="$currentProfit" exact="$tradeAmount * $someNeed.ware.volume" />
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}*0.02)f)" />
 										<do_if value="$debugchance">
@@ -4188,18 +4314,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -4207,6 +4323,10 @@
 							<!-- if we end up with more than one need, we'll move it down with move_order later -->
 							<do_if value="$bestProfit gt 0">
 								<do_if value="$bestSupplyTrade.available and $bestNeedTrade.available">
+                                    <do_if value="(($bestAmount+1)*$bestNeedTrade.ware.volume lt $minCargoSize) and ($bestAmount == $bestNeedTrade.desiredamount)">
+    									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Setting $ignoreTotalCargoCheck t o true for completing build storage order'" />
+									    <set_value name="$ignoreTotalCargoCheck" exact="true"/>
+								    </do_if>
 									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- trade found'" />
 
 									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'buying ' +$bestAmount + ' ' +$bestNeedTrade.ware +' from ' +$bestSupplyTrade.owner.knownname
@@ -4217,8 +4337,11 @@
 										+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 										+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -4256,7 +4379,7 @@
 					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- ai to station sector player build storage'" />
 
 					<!-- finding the player build storage needs again, just in case -->
-					<find_buy_offer space="$sourceStation.sector" tradepartner="this.ship" result="$playerBuildNeeds" multiple="true">
+					<find_buy_offer space="$sourceStationL.sector" tradepartner="this.ship" result="$playerBuildNeeds" multiple="true">
 						<match_buyer class="class.buildstorage" owner="this.ship.owner" />
 					</find_buy_offer>
 
@@ -4334,7 +4457,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -4370,7 +4493,6 @@
 								<!-- how much does the need want? -->
 								<get_ware_reservation object="$someNeed.owner" type="buy" ware="$someNeed.ware" result="$needReservations" />
                                 <set_value name="$targetOfferedAmount" exact="$someNeed.desiredamount" />
-                                <do_if value="($targetOfferedAmount+1) * $someNeed.ware.volume lt $minCargoSize"> <continue /> </do_if>
 
 								<do_all exact="$aiSupplyOffers.count" counter="$j">
 									<set_value name="$someSupply" exact="$aiSupplyOffers.{$j}" />
@@ -4379,8 +4501,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<!-- how much can the station afford/store? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
@@ -4425,18 +4560,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -4444,6 +4569,10 @@
 							<!-- if we end up with more than one need, we'll move it down with move_order later -->
 							<do_if value="$bestNeedTrade != null">
 								<do_if value="$bestSupplyTrade.available and $bestNeedTrade.available">
+                                    <do_if value="(($bestAmount+1)*$bestNeedTrade.ware.volume lt $minCargoSize) and ($bestAmount == $bestNeedTrade.desiredamount)">
+    									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Setting $ignoreTotalCargoCheck t o true for completing build storage order'" />
+									    <set_value name="$ignoreTotalCargoCheck" exact="true"/>
+								    </do_if>
 									<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'buying ' +$bestAmount + ' ' +$bestNeedTrade.ware +' from ' +$bestSupplyTrade.owner.knownname
 									+' at ' +$bestSupplyTrade.unitprice.formatted.{'%s %Cr'} + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 									+' at ' +$bestNeedTrade.unitprice.formatted.{'%s %Cr'} + ' for a profit of ' +($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'} " />
@@ -4452,8 +4581,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.base.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -4492,7 +4624,7 @@
 
 					<!-- finding the player needs -->
 					<!-- unfortunately at this level it's not possible to filter for only goods that are products on the station -->
-					<find_buy_offer space="$sourceStation.sector" tradepartner="this.ship" result="$tmpProductNeeds" multiple="true">
+					<find_buy_offer space="$sourceStationL.sector" tradepartner="this.ship" result="$tmpProductNeeds" multiple="true">
 						<match_buyer owner="this.ship.owner">
 							<match class="class.buildstorage" negate="true" />
 						</match_buyer>
@@ -4573,7 +4705,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$playerSupplyOffers" multiple="true">
     						<match_seller owner="this.ship.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -4614,7 +4746,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -4659,8 +4791,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -4678,7 +4823,7 @@
 										</do_if>
 
 										<!-- how much profit for this trade? -->
-										<set_value name="$currentProfit" exact="$cargoHauled * $someNeed.ware.volume" />
+										<set_value name="$currentProfit" exact="$tradeAmount * $someNeed.ware.volume" />
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}*0.02)f)" />
 										<do_if value="$debugchance">
@@ -4703,18 +4848,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -4730,8 +4865,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -4770,7 +4908,7 @@
 
 					<!-- finding the player needs -->
 					<!-- unfortunately at this level it's not possible to filter for only goods that are products on the station -->
-					<find_buy_offer space="$sourceStation.sector" tradepartner="this.ship" result="$tmpProductNeeds" multiple="true">
+					<find_buy_offer space="$sourceStationL.sector" tradepartner="this.ship" result="$tmpProductNeeds" multiple="true">
 						<match_buyer owner="this.ship.owner">
 							<match class="class.buildstorage" negate="true" />
 						</match_buyer>
@@ -4893,7 +5031,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -4938,8 +5076,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<!-- how much can the station afford/store? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
@@ -4981,18 +5132,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -5008,8 +5149,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -5048,7 +5192,7 @@
 
 					<!-- finding the player needs -->
 					<!-- unfortunately at this level it's not possible to filter for only goods that are products on the station -->
-					<find_buy_offer space="$sourceStation.sector" tradepartner="this.ship" result="$tmpTradeNeeds" multiple="true">
+					<find_buy_offer space="$sourceStationL.sector" tradepartner="this.ship" result="$tmpTradeNeeds" multiple="true">
 						<match_buyer owner="this.ship.owner">
 							<match class="class.buildstorage" negate="true" />
 						</match_buyer>
@@ -5130,7 +5274,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$playerSupplyOffers" multiple="true">
     						<match_seller owner="this.ship.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -5171,7 +5315,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -5216,8 +5360,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -5235,7 +5392,7 @@
 										</do_if>
 
 										<!-- how much profit for this trade? -->
-										<set_value name="$currentProfit" exact="$cargoHauled * $someNeed.ware.volume" />
+										<set_value name="$currentProfit" exact="$tradeAmount * $someNeed.ware.volume" />
 
 									    <set_value name="$currentProfit" exact="($currentProfit)f * (1-($someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}*0.02)f)" />
 										<do_if value="$debugchance">
@@ -5260,18 +5417,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -5286,8 +5433,11 @@
 									<write_to_logbook category="upkeep" title="$logbookEntryTitle" interaction="showonmap" money="$bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)" text="'buying ' +$bestAmount + ' ' +$bestNeedTrade.ware +' from ' +$bestSupplyTrade.owner.knownname
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -5326,7 +5476,7 @@
 
 					<!-- finding the player needs -->
 					<!-- unfortunately at this level it's not possible to filter for only goods that are products on the station -->
-					<find_buy_offer space="$sourceStation.sector" tradepartner="this.ship" result="$tmpTradeNeeds" multiple="true">
+					<find_buy_offer space="$sourceStationL.sector" tradepartner="this.ship" result="$tmpTradeNeeds" multiple="true">
 						<match_buyer owner="this.ship.owner">
 							<match class="class.buildstorage" negate="true" />
 						</match_buyer>
@@ -5448,7 +5598,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -5493,8 +5643,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<!-- how much can the station afford/store? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
@@ -5536,18 +5699,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -5563,8 +5716,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -5602,7 +5758,7 @@
 					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- player supply to ai sector'" />
 
 					<!-- finding the station needs -->
-					<find_buy_offer space="$sourceStation.sector" tradepartner="this.ship" result="$sectorNeeds" multiple="true">
+					<find_buy_offer space="$sourceStationL.sector" tradepartner="this.ship" result="$sectorNeeds" multiple="true">
 						<match_buyer>
 							<match_relation_to object="this.ship" relation="enemy" comparison="not" />
 							<match tradesknownto="this.owner" />
@@ -5644,7 +5800,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$playerSupplyOffers" multiple="true">
     						<match_seller owner="this.ship.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -5685,7 +5841,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -5730,9 +5886,22 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
 
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -5776,18 +5945,8 @@
 											<set_value name="$bestSupplyTrade" exact="$someSupply" />
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
+                                      
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -5805,8 +5964,11 @@
 										+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 										+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -5845,7 +6007,7 @@
 					<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'----- ai to ai of station sector'" />
 
 					<!-- finding the station needs -->
-					<find_buy_offer space="$sourceStation.sector" tradepartner="this.ship" result="$sectorNeeds" multiple="true">
+					<find_buy_offer space="$sourceStationL.sector" tradepartner="this.ship" result="$sectorNeeds" multiple="true">
 						<match_buyer>
 							<match_relation_to object="this.ship" relation="enemy" comparison="not" />
 							<match tradesknownto="this.owner" />
@@ -5887,7 +6049,7 @@
     					<find_sell_offer space="player.galaxy" tradepartner="this.ship" wares="$specialWareBasket" result="$aiSupplyOffers" multiple="true">
     						<match_seller tradesknownto="this.owner">
     							<!-- this next bit of mess is just blacklist handling -->
-    							<match_gate_distance object="$sourceStation" min="0" max="$maxDist">
+    							<match_gate_distance object="$sourceStationL" min="0" max="$maxDist">
     								<blacklist group="blacklistgroup.civilian" object="this.ship" />
     							</match_gate_distance>
     							<match_use_blacklist group="blacklistgroup.civilian" type="blacklisttype.objectactivity" object="this.ship" />
@@ -5927,7 +6089,7 @@
 
 
 						<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'ship capacity: ' +$ShipCapacity" />
-						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStation then $sourceStation else this.ship" /> -->
+						<!-- <set_value name="$StartPosition" exact="if $dedicatedServe and $sourceStationL then $sourceStationL else this.ship" /> -->
 
 						<!-- these lists will hold the trades we want to make. we'll check they're still available before creating the orders -->
 						<create_list name="$needTrades" />
@@ -5971,8 +6133,21 @@
 										<continue />
 									</do_if>
 
+                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrateAfterOrder))"> <!-- waiting with trade orders active will never return -->
+                                          <set_value name="$scantick" exact="0" /> 
+                                          <wait exact="1ms" />
+                                            <set_value name="$spendablemoney" exact="player.money" />
+                                            <do_if value="this.ship.commander">
+                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
+                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
+                                              </do_if>
+                                            </do_if>
+                                      </do_if>
 									<!-- only do any work if the offers are for the same ware -->
+
 									<do_if value="$someSupply.available and $someNeed.available and $someNeed.ware.id == $someSupply.ware.id">
+                                        <do_if value="$latestSeller != null and $latestSeller.sector != $sourceStationL.sector and $someSupply.seller.sector!=$latestSeller.sector and ($someSupply.seller.gatedistance.{$latestSeller}.{blacklistgroup.civilian}.{this.assignedcontrolled} ge $latestSellerHomeDistance)"> <continue /> </do_if>
+                                        <set_value name="$scantick" exact="$scantick+1" /> 
 										<!-- how much does the supply have to offer? -->
 										<clamp_trade_amount trade="$someSupply" amount="$someSupply.amount" buyer="this.assignedcontrolled" seller="$someSupply.seller" result="$affordableAmount" />
                                         <set_value name="$affordableAmount" exact="[[$spendablemoney / $someSupply.unitprice, $someSupply.amount].min, $affordableAmount].max" />
@@ -6016,17 +6191,6 @@
 											<set_value name="$bestAmount" exact="$tradeAmount" />
 										</do_if>
 									</do_if>
-                                      <set_value name="$scantick" exact="$scantick+1" /> 
-                                      <do_if value="$scantick gt $scantickrate and ($tradeOrdersCount == 0 or $scantick gt ($scantickrate * 10))"> <!-- waiting with trade orders active will never return -->
-                                          <set_value name="$scantick" exact="0" /> 
-                                          <wait exact="1ms" />
-                                            <set_value name="$spendablemoney" exact="player.money" />
-                                            <do_if value="this.ship.commander">
-                                               <do_if value="(this.ship.commander.hasownaccount) and (this.ship.commander.defaultorder == null or this.ship.commander.defaultorder.id != 'SupplyMule') and (this.ship.commander.money gt 0)"> <!-- For proper compatability with commanders that arnt stations. -->
-                                                <set_value name="$spendablemoney" exact="this.ship.commander.money" />
-                                              </do_if>
-                                            </do_if>
-                                      </do_if>
 								</do_all>
 							</do_all>
 
@@ -6042,8 +6206,11 @@
 									+' at ' +($bestSupplyTrade.unitprice.formatted.{'%s %Cr'}) + ' to sell to ' +$bestNeedTrade.owner.knownname
 									+' at ' +($bestNeedTrade.unitprice.formatted.{'%s %Cr'}) + ' for a profit of ' +(($bestAmount * ($bestNeedTrade.unitprice - $bestSupplyTrade.unitprice)).formatted.{'%s %Cr'})" />
 
+                                    <set_value name="$scantick" exact="0" />
 									<create_trade_order object="this.ship" tradeoffer="$bestSupplyTrade" amount="$bestAmount" immediate="true" />
 									<create_trade_order object="this.ship" tradeoffer="$bestNeedTrade" amount="$bestAmount" />
+                                    <set_value name="$latestSeller" exact="$bestSupplyTrade.seller.sector" />
+                                    <set_value name="$latestSellerHomeDistance" exact="$someSupply.seller.gatedistance.{$someNeed.buyer}.{blacklistgroup.civilian}.{this.assignedcontrolled}" />
                                     <set_value name="$tradeOrdersCount" exact="$tradeOrdersCount + 1" /> 
 								</do_if>
 								<do_else>
@@ -6083,7 +6250,7 @@
 			<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Performance - Trade selection: %.5s Seconds'.[player.age-$PerformanceTime]" />
 			<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'******* endCheck, occupied cargo ' + $OccupiedCargo + ' of ' + $ShipCapacity + ', trades: ' + $tradeOrdersCount" />
 			<do_if value="$tradeOrdersCount gt 0">
-                <do_if value="$OccupiedCargo lt ($minCargoSize)i*$maxtrades*0.5">
+                <do_if value="$OccupiedCargo lt ($minCargoSize)i*$maxtrades*0.5 and not $ignoreTotalCargoCheck">
     				<debug_to_file chance="$debugchance" name="$debugFileName" directory="'MulesExtended'" text="'Not enough cargo - cancelling all orders. Occupied ' + $OccupiedCargo + ' of ' +  $ShipCapacity + ', required ' + (($minCargoSize)i*$maxtrades*0.5)" />
                     <cancel_all_orders object="this.ship" /> 
                     <set_value name="$tradeOrdersCount" exact="0" /> 
@@ -6096,6 +6263,27 @@
 			<label name="end" />
 			<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'Performance - Trade selection/Wait: %.5s Seconds'.[player.age-$PerformanceTime]" />
 			<debug_to_file chance="$debugchance" name="$debugFileName" directory="$debugDirName" text="'******* went to end, occupied cargo ' + $OccupiedCargo + ' of ' + $ShipCapacity + ', trades: ' + $tradeOrdersCount" />
+			<return/>
+			<!-- Absolutly ridicules workaround to surpress any messages related to blocking actions -->
+			<!-- Basicially, we add a bunch of blocking actions that are never reached. -->
+			<!-- This ensures, that our block action index in the savegames never exceeds the actual number of blocking actions. -->
+			<!-- Therefore, if we were to delete a blocking action above, the savegame will load without throwing an error message -->
+			<!-- Note, that the script state in this case is totally wrong, since the game will load the variables from the last game. -->
+			<!-- This is mitiagted, by restarting the order with a patch command on load. -->
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/>
+			<wait chance="0"/> 
 		</actions>
 	</attention>
 </aiscript>
